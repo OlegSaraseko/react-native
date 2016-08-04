@@ -456,13 +456,26 @@ RCT_EXPORT_MODULE()
   Class jsDebuggingExecutorClass = NSClassFromString(@"RCTWebSocketExecutor");
   if (!jsDebuggingExecutorClass) {
     [items addObject:[RCTDevMenuItem buttonItemWithTitle:[NSString stringWithFormat:@"%@ Debugger Unavailable", _webSocketExecutorName] handler:^{
-      UIAlertView *alert = RCTAlertView(
-        [NSString stringWithFormat:@"%@ Debugger Unavailable", self->_webSocketExecutorName],
-        [NSString stringWithFormat:@"You need to include the RCTWebSocket library to enable %@ debugging", self->_webSocketExecutorName],
-        nil,
-        @"OK",
-        nil);
-      [alert show];
+      
+      UIViewController *presentingController = RCTPresentedViewController();
+      if (presentingController == nil) {
+        RCTLogError(@"Tried to display alert view but there is no application window.");
+        return;
+      }
+      
+      UIAlertController *alertController =
+      [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"%@ Debugger Unavailable", self->_webSocketExecutorName]
+                                          message:[NSString stringWithFormat:@"You need to include the RCTWebSocket library to enable %@ debugging", self->_webSocketExecutorName]
+                                   preferredStyle:UIAlertControllerStyleAlert];
+      
+      UIAlertAction *okAction = [UIAlertAction
+                                 actionWithTitle:@"OK"
+                                 style:UIAlertActionStyleDefault
+                                 handler:nil];
+      
+      [alertController addAction:okAction];
+      
+      [presentingController presentViewController:alertController animated:YES completion:nil];
     }]];
   } else {
     BOOL isDebuggingJS = _executorClass && _executorClass == jsDebuggingExecutorClass;

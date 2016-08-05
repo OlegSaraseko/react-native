@@ -393,13 +393,26 @@ RCT_EXPORT_MODULE()
   Class chromeExecutorClass = NSClassFromString(@"RCTWebSocketExecutor");
   if (!chromeExecutorClass) {
     [items addObject:[RCTDevMenuItem buttonItemWithTitle:[NSString stringWithFormat:@"%@ Debugger Unavailable", _webSocketExecutorName] handler:^{
-      UIAlertView *alert = RCTAlertView(
-        [NSString stringWithFormat:@"%@ Debugger Unavailable", _webSocketExecutorName],
-        [NSString stringWithFormat:@"You need to include the RCTWebSocket library to enable %@ debugging", _webSocketExecutorName],
-        nil,
-        @"OK",
-        nil);
-      [alert show];
+      UIViewController *presentingController = RCTPresentedViewController();
+      if (presentingController == nil) {
+        RCTLogError(@"Tried to display alert view but there is no application window.");
+        return;
+      }
+      
+      UIAlertController *alertController =
+      [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"%@ Debugger Unavailable", self->_webSocketExecutorName]
+                                          message:[NSString stringWithFormat:@"You need to include the RCTWebSocket library to enable %@ debugging", self->_webSocketExecutorName]
+                                   preferredStyle:UIAlertControllerStyleAlert];
+      
+      UIAlertAction *okAction = [UIAlertAction
+                                 actionWithTitle:@"OK"
+                                 style:UIAlertActionStyleDefault
+                                 handler:nil];
+      
+      [alertController addAction:okAction];
+      
+      [presentingController presentViewController:alertController animated:YES completion:nil];
+
     }]];
   } else {
     BOOL isDebuggingInChrome = _executorClass && _executorClass == chromeExecutorClass;

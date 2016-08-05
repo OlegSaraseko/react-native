@@ -19,6 +19,7 @@
 #import <zlib.h>
 #import <dlfcn.h>
 
+#import "RCTAssert.h"
 #import "RCTLog.h"
 
 NSString *const RCTErrorUnspecified = @"EUNSPECIFIED";
@@ -228,9 +229,31 @@ NSString *RCTMD5Hash(NSString *string)
   ];
 }
 
+BOOL RCTIsMainQueue()
+{
+  static void *mainQueueKey = &mainQueueKey;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    dispatch_queue_set_specific(dispatch_get_main_queue(),
+                                mainQueueKey, mainQueueKey, NULL);
+  });
+  return dispatch_get_specific(mainQueueKey) == mainQueueKey;
+}
+
+void RCTExecuteOnMainQueue(dispatch_block_t block)
+{
+  if (RCTIsMainQueue()) {
+    block();
+  } else {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      block();
+    });
+  }
+}
+
 void RCTExecuteOnMainThread(dispatch_block_t block, BOOL sync)
 {
-  if ([NSThread isMainThread]) {
+  if (RCTIsMainQueue()) {
     block();
   } else if (sync) {
     dispatch_sync(dispatch_get_main_queue(), ^{
@@ -258,6 +281,10 @@ CGFloat RCTScreenScale()
 
 CGSize RCTScreenSize()
 {
+  // FIXME: this caches the bounds at app start, whatever those were, and then
+  // doesn't update when the device is rotated. We need to find another thread-
+  // safe way to get the screen size.
+
   static CGSize size;
   static dispatch_once_t onceToken;
   dispatch_once(&onceToken, ^{
@@ -372,7 +399,8 @@ NSDictionary<NSString *, id> *RCTMakeAndLogError(NSString *message,
 
 NSDictionary<NSString *, id> *RCTJSErrorFromNSError(NSError *error)
 {
-  return RCTJSErrorFromCodeMessageAndNSError(RCTErrorUnspecified,
+  NSString *codeWithDomain = [NSString stringWithFormat:@"E%@%zd", error.domain.uppercaseString, error.code];
+  return RCTJSErrorFromCodeMessageAndNSError(codeWithDomain,
                                              error.localizedDescription,
                                              error);
 }
@@ -434,6 +462,21 @@ UIWindow *__nullable RCTKeyWindow(void)
   return RCTSharedApplication().keyWindow;
 }
 
+UIViewController *__nullable RCTPresentedViewController(void)
+{
+  if (RCTRunningInAppExtension()) {
+    return nil;
+  }
+
+  UIViewController *controller = RCTKeyWindow().rootViewController;
+
+  while (controller.presentedViewController) {
+    controller = controller.presentedViewController;
+  }
+
+  return controller;
+}
+
 BOOL RCTForceTouchAvailable(void)
 {
   static BOOL forceSupported;
@@ -445,31 +488,6 @@ BOOL RCTForceTouchAvailable(void)
 
   return forceSupported &&
     (RCTKeyWindow() ?: [UIView new]).traitCollection.forceTouchCapability == UIForceTouchCapabilityAvailable;
-}
-
-UIAlertView *__nullable RCTAlertView(NSString *title,
-                                     NSString *__nullable message,
-                                     id __nullable delegate,
-                                     NSString *__nullable cancelButtonTitle,
-                                     NSArray<NSString *> *__nullable otherButtonTitles)
-{
-  if (RCTRunningInAppExtension()) {
-    RCTLogError(@"RCTAlertView is unavailable when running in an app extension");
-    return nil;
-  }
-
-  UIAlertView *alertView = [UIAlertView new];
-  alertView.title = title;
-  alertView.message = message;
-  alertView.delegate = delegate;
-  if (cancelButtonTitle != nil) {
-    [alertView addButtonWithTitle:cancelButtonTitle];
-    alertView.cancelButtonIndex = 0;
-  }
-  for (NSString *buttonTitle in otherButtonTitles) {
-    [alertView addButtonWithTitle:buttonTitle];
-  }
-  return alertView;
 }
 
 NSError *RCTErrorWithMessage(NSString *message)
@@ -587,6 +605,51 @@ BOOL RCTIsXCAssetURL(NSURL *__nullable imageURL)
     return NO;
   }
   return YES;
+}
+
+RCT_EXTERN NSString *__nullable RCTTempFilePath(NSString *extension, NSError **error)
+{
+  static NSError *setupError = nil;
+  static NSString *directory;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    directory = [NSTemporaryDirectory() stringByAppendingPathComponent:@"ReactNative"];
+    // If the temporary directory already exists, we'll delete it to ensure
+    // that temp files from the previous run have all been deleted. This is not
+    // a security measure, it simply prevents the temp directory from using too
+    // much space, as the circumstances under which iOS clears it automatically
+    // are not well-defined.
+    NSFileManager *fileManager = [NSFileManager new];
+    if ([fileManager fileExistsAtPath:directory]) {
+      [fileManager removeItemAtPath:directory error:NULL];
+    }
+    if (![fileManager fileExistsAtPath:directory]) {
+      NSError *localError = nil;
+      if (![fileManager createDirectoryAtPath:directory
+                  withIntermediateDirectories:YES
+                                   attributes:nil
+                                        error:&localError]) {
+        // This is bad
+        RCTLogError(@"Failed to create temporary directory: %@", localError);
+        setupError = localError;
+        directory = nil;
+      }
+    }
+  });
+
+  if (!directory || setupError) {
+    if (error) {
+      *error = setupError;
+    }
+    return nil;
+  }
+
+  // Append a unique filename
+  NSString *filename = [NSUUID new].UUIDString;
+  if (extension) {
+    filename = [filename stringByAppendingPathExtension:extension];
+  }
+  return [directory stringByAppendingPathComponent:filename];
 }
 
 static void RCTGetRGBAColorComponents(CGColorRef color, CGFloat rgba[4])

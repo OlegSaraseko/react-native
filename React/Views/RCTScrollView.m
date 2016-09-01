@@ -152,6 +152,8 @@ RCT_NOT_IMPLEMENTED(- (instancetype)init)
 
 @implementation RCTCustomScrollView
 
+@synthesize refreshControl;
+
 - (instancetype)initWithFrame:(CGRect)frame
 {
   if ((self = [super initWithFrame:frame])) {
@@ -367,11 +369,11 @@ RCT_NOT_IMPLEMENTED(- (instancetype)init)
 
 - (void)setRefreshControl:(UIRefreshControl *)refreshControl
 {
-  if (_refreshControl) {
-    [_refreshControl removeFromSuperview];
+  if (self->refreshControl) {
+    [self->refreshControl removeFromSuperview];
   }
-  _refreshControl = refreshControl;
-  [self addSubview:_refreshControl];
+  self->refreshControl = refreshControl;
+  [self addSubview:self->refreshControl];
 }
 
 @end
